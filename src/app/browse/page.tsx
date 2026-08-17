@@ -1,10 +1,10 @@
 import AppLayout from "@/components/AppLayout";
-import HomePage from "@/components/HomePage";
+import BrowsePage from "@/components/BrowsePage";
 
 export default function Page() {
   return (
     <AppLayout>
-      <HomePage />
+      <BrowsePage />
     </AppLayout>
   );
 }
