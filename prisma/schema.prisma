@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  CREATOR
+  ADMIN
+}
+
+enum ContentType {
+  VIDEO
+  PDF
+  DOCUMENT
+  IMAGE
+}
+
+enum ContentStatus {
+  PROCESSING // just uploaded, being handled
+  ACTIVE // live and accessible
+  REJECTED // failed moderation
+  DELETED
+}
+
+enum PurchaseStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// ─── GEOGRAPHY ────────────────────────────────────────────
+
+model Country {
+  id      String    @id @default(cuid())
+  name    String    @unique
+  code    String    @unique // "IN", "US" etc.
+  states  State[]
+  content Content[]
+
+  @@map("countries")
+}
+
+model State {
+  id           String       @id @default(cuid())
+  name         String
+  countryId    String
+  country      Country      @relation(fields: [countryId], references: [id])
+  universities University[]
+  content      Content[]
+
+  @@unique([name, countryId])
+  @@map("states")
+}
+
+model University {
+  id      String    @id @default(cuid())
+  name    String
+  stateId String
+  state   State     @relation(fields: [stateId], references: [id])
+  content Content[]
+
+  @@unique([name, stateId])
+  @@map("universities")
+}
+
+// ─── TOPICS / TAGS ────────────────────────────────────────
+
+model Topic {
+  id      String         @id @default(cuid())
+  name    String         @unique // "Mathematics", "DBMS", "OS"
+  slug    String         @unique // "mathematics", "dbms"
+  content ContentTopic[]
+
+  @@map("topics")
+}
+
+// ─── USERS ────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  userName  String   @unique
+  fullName  String // removed @unique — intentional
+  password  String
+  role      UserRole @default(USER)
+  avatarUrl String?
+  bio       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  content   Content[] // content this user uploaded
+  purchases Purchase[] // content this user bought
+
+  @@map("users")
+}
+
+// ─── CONTENT ──────────────────────────────────────────────
+
+model Content {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  type        ContentType
+  status      ContentStatus @default(PROCESSING)
+
+  // Storage — path on S3/R2 or local filesystem
+  fileUrl      String // actual file
+  thumbnailUrl String?
+
+  // Freemium fields
+  isPaid   Boolean  @default(false)
+  priceInr Decimal? @db.Decimal(10, 2) // null = free
+
+  // Uploader
+  uploaderId String
+  uploader   User   @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  // Geography (all 3 required at upload time)
+  countryId    String
+  country      Country    @relation(fields: [countryId], references: [id])
+  stateId      String
+  state        State      @relation(fields: [stateId], references: [id])
+  universityId String
+  university   University @relation(fields: [universityId], references: [id])
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  topics    ContentTopic[]
+  purchases Purchase[]
+
+  @@map("content")
+}
+
+// ─── CONTENT ↔ TOPIC (many-to-many) ──────────────────────
+
+model ContentTopic {
+  contentId String
+  topicId   String
+  content   Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  topic     Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([contentId, topicId])
+  @@map("content_topics")
+}
+
+// ─── PURCHASES ────────────────────────────────────────────
+
+model Purchase {
+  id        String         @id @default(cuid())
+  userId    String
+  contentId String
+  amountInr Decimal        @db.Decimal(10, 2)
+  status    PurchaseStatus @default(PENDING)
+
+  // Razorpay fields
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id])
+  content Content @relation(fields: [contentId], references: [id])
+
+  @@unique([userId, contentId]) // one purchase per user per content
+  @@map("purchases")
+}
